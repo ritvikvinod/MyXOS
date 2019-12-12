@@ -1,0 +1,149 @@
+alias physicalSP S0;
+alias systemCallNo S1;
+alias i S2;
+alias childPID S3;
+alias currentPID S4;
+alias currentPCB S5;
+alias currentPageTable S6;
+alias childStack S7;
+alias parentStack S8;
+alias childPageTable S9;
+alias childPCB S10;
+alias systemFileEntry S11;
+alias j S13;
+alias k S14;
+alias parentPage S15;
+
+physicalSP = ([PTBR + 2*(SP/512)]*512) + (SP%512);
+systemCallNo=[physicalSP-1];
+
+if(systemCallNo==8) then
+	i=0;
+	while(i<32) do
+		if([READY_LIST+i*32+1]==0) then
+			childPID=i;
+			break;
+		endif;
+		i=i+1;
+	endwhile;
+	if(i==32) then
+		[physicalSP-2]=-1;
+		ireturn;
+	endif;
+	currentPID = (PTBR - 1024) / 8;
+	currentPCB = READY_LIST + 32 * currentPID;
+	currentPageTable=PAGE_TABLE+(currentPID*8);
+	i=29;
+	while(i<64) do			
+		if([MEM_LIST+i]==0) then
+			[MEM_LIST+i]=1;
+			childStack=i;
+			break;
+		endif;
+		i=i+1;		
+	endwhile;
+	if(i==64) then
+		//[physicalSP-2]=-1;
+		//ireturn;
+		alias pageTable S1;
+		i = currentPID;
+		childStack=-1;
+		while( childStack == -1) do
+			pageTable = PAGE_TABLE + i*8;		
+			j = 0;
+			while(j<3 && childStack == -1) do
+				if([pageTable+2*j] == -1 || [pageTable+2*j+1]=="00" || [pageTable+2*j+1]=="10") then
+					j=j+1;
+					continue;
+				endif;
+				if( [MEM_LIST + [pageTable + 2*j]] >1 ) then
+					j=j+1;
+					continue;
+				endif;
+				if( [pageTable + 2*j + 1] == "11" ) then
+					[pageTable + 2*j + 1] = "01";
+				endif;
+				if( [pageTable + 2*j + 1] == "01" ) then
+					k = 448;
+					while(k<512) do
+						if([DISK_LIST + k] == 0) then
+							[DISK_LIST + k] = 1;
+							store(6,20);
+							childStack = [pageTable + 2*j];
+							store(childStack,k);
+							[pageTable + 2*j] = k;
+							[pageTable + 2*j + 1] = "00";
+							break;
+						endif;
+						k = k + 1;
+					endwhile;
+					if(k==512) then
+						[physicalSP-2]=-1;
+						ireturn;
+					endif;
+				endif;
+				j=j+1;
+			endwhile;
+			i=i+1;
+			if(i>31) then 
+				i=0; 
+			endif;
+		endwhile;
+	endif;
+	parentStack=[currentPageTable+6];
+	i=0;
+	while(i<512) do
+		[childStack+i]=[parentStack+i];
+		i=i+1;
+	endwhile;
+	childPageTable=PAGE_TABLE+(childPID*8);
+	childPCB = READY_LIST + 32 * childPID;
+	[childPageTable+6]=childStack;
+	[childPageTable+7]="01";
+	i=0;
+	while(i<3) do
+		[childPageTable+(i*2)]=[currentPageTable+(i*2)];
+		[childPageTable+(i*2)+1]=[currentPageTable+(i*2)+1];
+		if([currentPageTable+(i*2)]!=-1) then
+			if([currentPageTable+(i*2)+1]=="01" || [currentPageTable+(i*2)+1]=="11") then
+				[MEM_LIST+[currentPageTable+(i*2)]]=[MEM_LIST+[currentPageTable+(i*2)]]+1;
+			endif;
+			if([currentPageTable+(i*2)]>447) then
+				[DISK_LIST+[currentPageTable+(i*2)]]=[SCRATCHPAD+[currentPageTable+(i*2)]]+1;
+			endif;
+		endif;
+		i=i+1;
+	endwhile;
+	store(6,20);
+	[childPCB+0]=childPID;
+	[childPCB+5]=childPageTable;
+	[childPCB+4]=[physicalSP];
+	[childPCB+3]=SP-1;
+	[childPCB+2]=BP;
+	[childPCB+6]=PTLR;
+	[childPCB+7]=R0;
+	[childPCB+8]=R1;
+	[childPCB+9]=R2;
+	[childPCB+10]=R3;
+	[childPCB+11]=R4;
+	[childPCB+12]=R5;
+	[childPCB+13]=R6;
+	[childPCB+14]=R7;
+	[childPCB+31]=currentPID;
+	i=15;
+	while(i<31) do
+		[childPCB+i]=[currentPCB+i];		
+		i=i+1;
+	endwhile;
+	i=0;
+	while(i<8) do
+		systemFileEntry=[currentPCB+15+i*2];
+		[FILE_TABLE+systemFileEntry*2+1]=[FILE_TABLE+systemFileEntry*2+1]+1;
+		i=i+1;
+	endwhile;
+	[childPCB+1]=1;
+	[physicalSP-2]=childPID;
+	physicalSP = ([childPageTable + 2*((SP-1)/512)]*512) + ((SP-1)%512);
+	[physicalSP-1]=-2;
+	ireturn;
+endif;

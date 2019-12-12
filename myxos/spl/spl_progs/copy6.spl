@@ -1,0 +1,126 @@
+alias sysCallNo S0;
+alias physicalSP S1;
+alias fileName S2;
+alias pid S3;
+alias currentPCB S4;
+alias FATentry S5;
+alias counter S6;
+alias basic S7;
+alias parentCode S8;
+alias newCode S9;
+alias temp S10;
+alias newphysicalSP S11;
+alias PPFTpointer S12;
+alias diff S13;
+alias available S14;
+
+
+physicalSP = ([PTBR + 2*(SP/512)]*512) + (SP%512);
+sysCallNo = [physicalSP - 1];
+fileName = [physicalSP - 3];
+
+pid = (PTBR - 1024)/8;
+currentPCB = READY_LIST + pid*32;
+
+/////////////////////////////////////////////////////////////////////////////////////////
+if( sysCallNo == 9 ) then
+
+	FATentry = -1;
+	counter = 0;
+
+
+	while( (counter < 64) && (FATentry == -1) ) do
+		if( [FAT + 8*counter] == fileName ) then
+			FATentry = FAT+ 8*counter; 
+		endif;
+		counter = counter + 1;
+	endwhile;
+
+	if( FATentry == -1 ) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+
+	basic = [FATentry + 2];
+
+	load(1, basic);
+
+	newCode=0;
+	temp=0;
+	while( temp<256) do
+	if([512+temp]!=-1  && [512+temp]!="") then
+	newCode= newCode+1;
+	endif;
+	temp=temp+1;
+	endwhile;
+
+	parentCode = 0;
+	counter = 0;
+	while( counter < 3 ) do
+		if( ([PTBR + counter*2 ] != -1)  ) then
+			if ([PTBR + counter*2 + 1]=="01" || [PTBR + counter*2 + 1]=="11" ) then
+				[MEM_LIST + [PTBR + counter*2 ]] = [MEM_LIST + [PTBR + counter*2 ]] - 1;
+			else
+				if( [PTBR + counter*2]>=448 ) then
+					[DISK_LIST + [PTBR + counter*2]] = [DISK_LIST + [PTBR + counter*2]] - 1;
+				endif;
+			endif;
+			[PTBR + counter*2] = -1;
+			[PTBR + counter*2 + 1] = "00";
+		endif;
+		counter = counter + 1;
+	endwhile;
+	store(6,20);
+	[PTBR + 7] = "01";
+	load(1, basic);
+	counter=0;
+	temp=0;
+	while(temp<256) do
+		if([512+temp]!=-1 && [512+temp]!="") then
+			[PTBR + counter*2] = [512+temp];
+			[PTBR + counter*2 + 1] = "00";
+			counter= counter+1;
+		endif;
+		temp=temp+1;
+	endwhile;
+
+	store(1, basic);
+	temp=0;
+	while(temp<8) do
+	PPFTpointer = currentPCB + 15 + 2*temp;
+
+			if( [PPFTpointer] != -1) then
+			[FILE_TABLE + 2*[PPFTpointer] + 1] = [FILE_TABLE + 2*[PPFTpointer] + 1] - 1;
+
+			if( [FILE_TABLE + 2*[PPFTpointer] + 1] == 0 ) then 
+				[FILE_TABLE + 2*[PPFTpointer]] = -1;
+			endif;
+		
+			[PPFTpointer] = -1;
+			[PPFTpointer + 1] = -1;
+		endif;
+		temp=temp+1;
+		endwhile;
+
+	SP =3*512;
+	newphysicalSP = ([PTBR + 2*(SP/512)]*512) + (SP%512);
+	[newphysicalSP]=0;
+
+	ireturn;
+/////////////////////////////////////////////////////////////////////////////////////
+else if(sysCallNo == 11) then  //getpid
+
+	[physicalSP - 2] = pid;
+	ireturn;
+
+//////////////////////////////////////////////////////////////////////////////////////
+else if(sysCallNo == 12) then
+	
+	[physicalSP - 2] = [currentPCB + 31];
+	ireturn;
+
+endif;
+endif;
+endif;
+

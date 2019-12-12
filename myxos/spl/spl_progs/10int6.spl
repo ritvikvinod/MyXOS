@@ -1,0 +1,83 @@
+alias physicalSP S0;
+alias systemCallNo S1;
+alias filename S2;
+alias i S3;
+alias basicB S4;
+alias currentPageTable S5;
+alias processPageTable S6;
+alias oldCodeBlocks S7;
+alias currentPID S8;
+alias currentPCB S9;
+alias extraPage S10;
+alias newPage S11;
+alias j S12;
+alias k S13;
+alias childPID S14;
+alias systemFileEntry S15;
+
+physicalSP=([PTBR+2*(SP/512)]*512)+(SP%512);
+systemCallNo=[physicalSP-1];
+filename=[physicalSP-3];
+
+if(systemCallNo==9) then
+	i=0;
+	currentPID = (PTBR - 1024) / 8;
+	currentPCB = READY_LIST + 32 * currentPID;
+	currentPageTable=PAGE_TABLE+(currentPID*8);
+	while(i<64) do
+		if([FAT+i*8]==filename) then
+			basicB=[FAT+(i*8)+2];
+			break;
+		endif;
+		i=i+1;
+	endwhile;
+	if(i==64) then
+		[physicalSP-2]=-1;
+		ireturn;
+	endif;
+	load(1,basicB);
+	i=0;
+	while(i<3) do
+		if([currentPageTable+(i*2)+1]=="01" || [currentPageTable+(i*2)+1]=="11") then
+			[MEM_LIST+[currentPageTable+(i*2)]]=[MEM_LIST+[currentPageTable+(i*2)]]-1;
+		endif;
+		if(([currentPageTable+(i*2)+1]=="00" || [currentPageTable+(i*2)+1]=="10") && [currentPageTable+(i*2)]>447) then
+			[DISK_LIST+[currentPageTable+(i*2)]]=[SCRATCHPAD+[currentPageTable+(i*2)]]-1;
+			store(6,20);
+		endif;
+		[currentPageTable+(i*2)]=[SCRATCHPAD+i];
+		[currentPageTable+(i*2)+1]="00";
+		i=i+3;
+	endwhile;
+	[currentPageTable+7]="01";
+	i=0;
+	while(i<8) do
+		if([currentPCB+15+(i*2)]!=-1) then
+			systemFileEntry=[currentPCB+15+(i*2)];
+			[FILE_TABLE+systemFileEntry+1]=[FILE_TABLE+systemFileEntry+1]-1;
+			if([FILE_TABLE+systemFileEntry+1]==0) then
+				[FILE_TABLE+systemFileEntry]=-1;
+			endif;
+			[currentPCB+15+(i*2)]=-1;
+			[currentPCB+15+(i*2)+1]=-1;
+		endif;
+		i=i+1;
+	endwhile;
+	SP=3*512;
+	physicalSP=([PTBR+2*(SP/512)]*512)+(SP%512);
+	[physicalSP]=0;
+	ireturn;	
+endif;
+
+if(systemCallNo==11) then
+	currentPID = (PTBR - 1024) / 8;
+	[physicalSP-2]=currentPID;
+	ireturn;
+endif;
+
+if(systemCallNo==12) then
+	currentPID = (PTBR - 1024) / 8;
+	currentPCB = READY_LIST + 32 * currentPID;
+	[physicalSP-2]=[currentPCB+31];
+	ireturn;
+endif;

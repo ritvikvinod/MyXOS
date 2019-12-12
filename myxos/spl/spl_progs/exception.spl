@@ -1,0 +1,151 @@
+alias Cause S0;
+alias VPagenum S1;
+alias Ip_addr S2;
+alias currentPID S3;
+alias currentPCB S4;
+alias currentPageTable S5;
+alias i S6;
+alias freePage S7;
+alias pageTable S8;
+alias freeBlock S9;
+alias physicalSP S10;
+alias ip S11;
+alias j S12;
+alias k S13;
+alias pageNo S14;
+
+Cause = EFR % 10;
+VPagenum = (EFR / 10) % 100;
+Ip_addr = (EFR/1000);
+physicalSP=([PTBR+2*(SP/512)]*512)+(SP%512);
+
+if(Cause!=0) then
+	if(Cause==1) then
+		print ("Illegal instruction");
+	endif;
+	if(Cause==2) then
+		print ("Illegal memory access");
+	endif;
+	if(Cause==3) then
+		print ("Arithmetic exception");
+	endif;
+	if(Cause==4) then
+		print ("Illegal operands");
+	endif;
+	ip = [physicalSP];
+	[physicalSP+1] = 10;
+	[physicalSP+2] = ip;
+	SP = SP + 2; 
+	inline "jmp 11776";	
+endif;
+
+if(Cause==0) then
+	currentPID = (PTBR - 1024) / 8;
+	currentPCB = READY_LIST + 32 * currentPID;
+	currentPageTable=PAGE_TABLE+(currentPID*8);
+	if([currentPageTable+(VPagenum*2)]==-1) then
+		ip = [physicalSP];
+		[physicalSP+1] = 10;
+		[physicalSP+2] = ip;
+		SP = SP + 2; 
+		inline "JMP 11776";
+	endif;
+	i=25;
+	while(i<64) do
+		if([MEM_LIST+i]==0) then
+			[MEM_LIST+i]=1;
+			freePage=i;
+			break;
+		endif;
+		i=i+1;
+	endwhile;
+	if(i==64) then
+		i = currentPID;
+		freePage=-1;
+		while( freePage == -1) do
+			pageTable = PAGE_TABLE + i*8;		
+			j = 0;
+			while(j<3 && freePage == -1) do
+				if([pageTable+2*j] == -1 || [pageTable+2*j+1]=="00" || [pageTable+2*j+1]=="10") then
+					j=j+1;
+					continue;
+				endif;
+				if( [MEM_LIST + [pageTable + 2*j]] >1 ) then
+					j=j+1;
+					continue;
+				endif;
+				if( [pageTable + 2*j + 1] == "11" ) then
+					[pageTable + 2*j + 1] = "01";
+				endif;
+				if( [pageTable + 2*j + 1] == "01" ) then
+					k = 448;
+					while(k<512) do
+						if([DISK_LIST + k] == 0) then
+							[DISK_LIST + k] = 1;
+							store(6,20);
+							freePage = [pageTable + 2*j];
+							store(freePage,k);
+							[pageTable + 2*j] = k;
+							[pageTable + 2*j + 1] = "00";
+							break;
+						endif;
+						k = k + 1;
+					endwhile;
+					if(k==512) then
+						print("No swap space");
+						ip = [physicalSP];
+						[physicalSP+1] = 10;
+						[physicalSP+2] = ip;
+						SP = SP + 2; 
+						inline "jmp 11776";
+					endif;
+				endif;
+				j=j+1;
+			endwhile;
+			i=i+1;
+			if(i>31) then 
+				i=0; 
+			endif;
+		endwhile;	
+	endif;
+	if(freePage == -1 ) then
+		ip = [physicalSP];
+		[physicalSP+1] = 10;
+		[physicalSP+2] = ip;
+		SP = SP + 2; 
+		inline "jmp 11776";
+	endif;
+	pageNo=[currentPageTable+(VPagenum*2)];
+	if((pageNo>20 && pageNo<448) && ([currentPageTable+(VPagenum*2)+1]=="00" || [currentPageTable+(VPagenum*2)+1]=="10")) then
+		load(freePage,pageNo);
+	endif;
+	if([currentPageTable+(VPagenum*2)]>447) then
+		if([DISK_LIST+[currentPageTable+(VPagenum*2)]]>1) then
+			[DISK_LIST+[currentPageTable+(VPagenum*2)]]=0;
+			load(freePage,[currentPageTable+(VPagenum*2)]);
+			j=0;
+			while(j<1280) do
+				i=0;
+				while(i<3) do
+					if([PAGE_TABLE+j*32+i*2]==[currentPageTable+(VPagenum*2)]) then
+						[PAGE_TABLE+j*32+i*2]=freePage;
+						[PAGE_TABLE+j*32+i*2+1]="01";
+						k=1;
+					endif;
+					i=i+1;
+				endwhile;
+				j=j+8;
+			endwhile;
+		endif;
+		if([DISK_LIST+[currentPageTable+(VPagenum*2)]]==1) then
+			load(freePage,[currentPageTable+(VPagenum*2)]);
+			[DISK_LIST+[currentPageTable+(VPagenum*2)]]=[DISK_LIST+[currentPageTable+(VPagenum*2)]]-1;
+			store(6,20);
+		endif;
+	endif;
+	[currentPageTable+(VPagenum*2)]=freePage;
+	[currentPageTable+(VPagenum*2)+1]="11";
+	SP=SP+1;
+	[physicalSP+1]=Ip_addr;
+	ireturn;
+endif;

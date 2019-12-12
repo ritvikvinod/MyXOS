@@ -1,0 +1,148 @@
+alias physicalSP S0;
+alias systemCallNo S1;
+alias filename S2;
+alias i S3;
+alias currentPID S4;
+alias nextPCB S5;
+alias pageEntry S6;
+alias waitingPID S7;
+alias currentPCB S8;
+alias systemFileEntry S9;
+alias max S10;
+alias checkPCB S11;
+alias newPCB S12;
+alias newphysicalSP S13;
+alias waitingPCB S14;
+alias timer S15;
+
+physicalSP=([PTBR+2*(SP/512)]*512)+(SP%512);
+systemCallNo=[physicalSP-1];
+filename=[physicalSP-3];
+waitingPID=[physicalSP-3];
+
+if(systemCallNo==13) then
+	waitingPCB = READY_LIST + 32 * waitingPID;
+	if([waitingPCB+1]!=1) then
+		[physicalSP-2]=-1;
+		ireturn;
+	endif;
+	currentPID = (PTBR - 1024) / 8;
+	currentPCB = READY_LIST + 32 * currentPID;
+	[currentPCB + 1] = 100 + waitingPID;
+
+	timer=1;
+endif;
+
+if(systemCallNo==14) then
+	currentPID = (PTBR - 1024) / 8;
+	currentPCB = READY_LIST + 32 * currentPID;
+	i=0;
+	while(i<32) do
+		if([READY_LIST+(i*32)+1]==100+currentPID) then
+			[READY_LIST+(i*32)+1]=1;
+		endif;
+		i=i+1;
+	endwhile;
+	[physicalSP-2]=0;
+	ireturn;
+endif;	
+
+if(systemCallNo==10) then
+	currentPID = (PTBR - 1024) / 8;
+	currentPCB = READY_LIST + 32 * currentPID;
+	i=0;
+	while(i<32) do
+		if([READY_LIST+(i*32)+1]==100+currentPID) then
+			[READY_LIST+(i*32)+1]=1;
+		endif;
+		i=i+1;
+	endwhile;
+	i=0;
+	while(i<32) do
+		if(i==currentPID) then
+			i=i+1;
+			continue;
+		endif;
+		if([READY_LIST+(i*32)+1]==1) then	
+			break;
+		endif;
+		i=i+1;
+	endwhile;
+	if(i==32) then
+		halt;
+	endif;
+	nextPCB=i;
+	i=0;
+	while(i<8) do
+		if([currentPCB+15+(i*2)]!=-1) then
+			systemFileEntry=[currentPCB+15+(i*2)];
+			[FILE_TABLE+systemFileEntry+1]=[FILE_TABLE+systemFileEntry+1]-1;
+			if([FILE_TABLE+systemFileEntry+1]==0) then
+				[FILE_TABLE+systemFileEntry]=-1;
+			endif;
+			[currentPCB+15+(i*2)]=-1;
+			[currentPCB+15+(i*2)+1]=-1;
+		endif;
+		i=i+1;
+	endwhile;
+	[currentPCB+1]=0;	
+	i=0;
+	while(i<4) do
+		if([PAGE_TABLE+(currentPID*8)+(i*2)]!=-1 && ([PAGE_TABLE+(currentPID*8)+(i*2)+1]=="01" || [PAGE_TABLE+(currentPID*8)+(i*2)+1]=="11")) then
+			pageEntry=[PAGE_TABLE+(currentPID*8)+(i*2)];
+			[MEM_LIST+pageEntry]=[MEM_LIST+pageEntry]-1;
+			[PAGE_TABLE+(currentPID*8)+(i*2)]=-1;
+			[PAGE_TABLE+(currentPID*8)+(i*2)+1]="00";
+		endif;
+		if([PAGE_TABLE+(currentPID*8)+(i*2)+1]=="00" || [PAGE_TABLE+(currentPID*8)+(i*2)+1]=="10") then
+			pageEntry=[PAGE_TABLE+(currentPID*8)+(i*2)];
+			if([PAGE_TABLE+(currentPID*8)+(i*2)]>447) then
+				[DISK_LIST+pageEntry]=[DISK_LIST+pageEntry]-1;
+				store(6,20);
+			endif;
+			[PAGE_TABLE+(currentPID*8)+(i*2)]=-1;
+			[PAGE_TABLE+(currentPID*8)+(i*2)+1]="00";
+		i=i+1;
+		endif;
+	endwhile;
+	timer=1;
+endif;
+	
+if(timer==1) then
+	max=READY_LIST+1024;
+	checkPCB=currentPCB+32;
+	while(checkPCB!=currentPCB) do
+		if(checkPCB==max) then
+			checkPCB=READY_LIST;
+		endif;
+		if([checkPCB+1]==1) then
+			newPCB=checkPCB;
+			break;
+		else
+			checkPCB=checkPCB+32;
+		endif;
+	endwhile;
+	if(currentPCB==checkPCB) then
+		ireturn;
+	endif;
+	[newPCB+1]=2;
+	BP=[newPCB+2];
+	SP=[newPCB+3];
+	PTBR=[newPCB+5];
+	PTLR=[newPCB+6];
+	R0=[newPCB+7];	
+	R1=[newPCB+8];
+	R2=[newPCB+9];
+	R3=[newPCB+10];
+	R4=[newPCB+11];
+	R5=[newPCB+12];
+	R6=[newPCB+13];
+	R7=[newPCB+14];
+	SP=SP+1;
+	newphysicalSP=([PTBR+2*(SP/512)]*512)+(SP%512);
+	[newphysicalSP]=[newPCB+4];
+	if(systemCallNo==13) then
+		[physicalSP-2]=0;
+	endif;
+	ireturn;
+endif;

@@ -1,0 +1,164 @@
+
+alias sysCallNo S0;
+alias physicalSP S1;
+alias currentPCB S2;
+alias currentPID S3;
+alias tempState S4;
+alias nextPCB S5;
+alias temp S6;
+alias PPFTpointer S7;
+alias newPhysicalSP S8;
+alias waitPid S9;
+alias waitPCB S10;
+
+currentPID = (PTBR - 1024)/8;
+currentPCB = READY_LIST + currentPID * 32;
+physicalSP = ([PTBR + 2*(SP/512)]*512) + (SP%512);
+sysCallNo = [physicalSP - 1];
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+if( (sysCallNo != 10) && (sysCallNo != 13) && (sysCallNo != 14) ) then
+	[physicalSP - 2] = -1;
+	ireturn;
+endif;
+
+if(sysCallNo == 13) then //wait
+	waitPid = [physicalSP - 3];
+	waitPCB = READY_LIST + waitPid*32;
+	
+	if( [waitPCB + 1] == 0 || [waitPCB + 1] == 2 ) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif; 
+	
+	[currentPCB + 1] = 100 + waitPid;
+	[currentPCB + 2] = BP;
+	[currentPCB + 3] = SP - 1;
+	[currentPCB + 4] = [physicalSP];
+	[currentPCB + 5] = PTBR;
+	[currentPCB + 6] = PTLR;
+	[currentPCB + 7] = R0;
+	[currentPCB + 8] = R1;
+	[currentPCB + 9] = R2;
+	[currentPCB + 10] = R3;
+	[currentPCB + 11] = R4;
+	[currentPCB + 12] = R5;
+	[currentPCB + 13] = R6;
+	[currentPCB + 14] = R7;
+
+
+	
+endif;
+
+if( sysCallNo == 10 || sysCallNo == 13) then	//exit or wait
+
+	tempState = currentPCB + 1 + 32;
+	nextPCB = -1;
+	while( (tempState <= READY_LIST + 1 + 31*32) ) do
+		if( ([tempState] == 100+currentPID) && (sysCallNo == 10)) then
+			[tempState] = 1;
+		endif;
+		if( ([tempState] == 1) && (nextPCB == -1)) then
+			nextPCB = tempState -1;
+		endif;
+		tempState = tempState + 32;
+	endwhile;
+
+
+	tempState = READY_LIST + 1;
+	while( (tempState < currentPCB + 1)) do
+		if( ([tempState] == 100+currentPID) && (sysCallNo == 10)) then
+			[tempState] = 1;
+		endif;
+		if( ([tempState] == 1) && (nextPCB == -1)) then
+			nextPCB = tempState -1;
+		endif;
+		tempState = tempState + 32;
+	endwhile;
+
+	if(nextPCB==-1) then
+		halt;
+	else
+		if(sysCallNo == 10) then
+			temp=0;
+			while(temp<8) do
+				PPFTpointer = currentPCB + 15 + 2*temp;
+
+				if( [PPFTpointer] != -1) then
+					[FILE_TABLE + 2*[PPFTpointer] + 1] = [FILE_TABLE + 2*[PPFTpointer] + 1] - 1;
+
+					if( [FILE_TABLE + 2*[PPFTpointer] + 1] == 0 ) then 
+						[FILE_TABLE + 2*[PPFTpointer]] = -1;
+					endif;
+		
+					[PPFTpointer] = -1;
+					[PPFTpointer + 1] = -1;
+				endif;
+				temp=temp+1;
+			endwhile;
+
+			[currentPCB+1]=0;
+
+
+			temp=0;
+			while(temp<4) do
+				if([PTBR+ 2*temp] != -1) then
+					if( [PTBR + 2*temp + 1] == "01" || [PTBR + 2*temp + 1] == "11" ) then
+						[MEM_LIST+ [PTBR+ 2*temp]]=[MEM_LIST+ [PTBR+ 2*temp]]-1;
+					else
+						if( [PTBR + 2*temp + 1] >=448 ) then
+							[3072 + [PTBR + 2*temp + 1]] = [3072 + [PTBR + 2*temp + 1]] - 1;
+						endif;
+					endif;
+					[PTBR+ 2*temp]=-1;
+					[PTBR+ 2*temp+1]="00";
+				endif;
+				temp=temp+1;
+			endwhile;
+			store(6,20);
+		endif;
+
+		BP = [nextPCB + 2];
+		SP = [nextPCB + 3];
+		PTBR = [nextPCB + 5];
+		PTLR = [nextPCB + 6];
+		R0 = [nextPCB + 7];
+		R1 = [nextPCB + 8];
+		R2 = [nextPCB + 9];
+		R3 = [nextPCB + 10];
+		R4 = [nextPCB + 11];
+		R5 = [nextPCB + 12];
+		R6 = [nextPCB + 13];
+		R7 = [nextPCB + 14];
+
+		SP=SP+1;
+		newPhysicalSP = ([PTBR + 2*(SP/512)]*512) + (SP%512);
+		[newPhysicalSP] = [nextPCB + 4];
+		ireturn;
+	endif;
+endif;
+////////////////////////////////////////////////////////////////////////////////////////
+if(sysCallNo == 14) then
+	tempState = currentPCB + 1 + 32;
+	while( (tempState <= READY_LIST + 1 + 31*32) ) do
+		if( [tempState] == 100+currentPID ) then
+			[tempState] = 1;
+		endif;
+		tempState = tempState + 32;
+	endwhile;
+
+
+	tempState = READY_LIST + 1;
+	while( (tempState < currentPCB + 1)) do
+		if( [tempState] == 100+currentPID ) then
+			[tempState] = 1;
+		endif;
+		tempState = tempState + 32;
+	endwhile;
+
+	[physicalSP - 2] = 0;
+	ireturn;
+endif;
+
+
